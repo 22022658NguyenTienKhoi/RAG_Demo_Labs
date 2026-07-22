@@ -8,8 +8,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from rag_document_processing import document_files
-from rag_gemini_runtime import DATA_DIR, STORE_DIR, chunk_document
+from rag_core.document_processing import document_files
+from rag_core.runtime import DATA_DIR, STORE_DIR, chunk_document
 
 
 def summarize(strategy: str) -> dict:

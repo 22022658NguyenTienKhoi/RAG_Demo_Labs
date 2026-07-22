@@ -7,9 +7,9 @@ from collections import defaultdict
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
-ROOT = next(path for path in HERE.parents if (path / "rag_gemini_runtime.py").exists())
+ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
-from rag_gemini_runtime import load_index
+from rag_core.runtime import load_index
 
 WIKI = ROOT / "risk_wiki"
 RISK_PATTERNS = {

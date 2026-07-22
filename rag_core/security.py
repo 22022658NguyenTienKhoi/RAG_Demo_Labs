@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-from document_catalog import POLICIES
+from rag_core.catalog import POLICIES
 
 SENSITIVE = {"confidential", "restricted"}
 

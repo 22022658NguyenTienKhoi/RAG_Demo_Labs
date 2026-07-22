@@ -19,15 +19,15 @@ from pathlib import Path
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from rag_document_processing import document_files, extract_document, normalize_vietnamese
-from rag_vector_store import backend_name, query_records
+from rag_core.document_processing import document_files, extract_document, normalize_vietnamese
+from rag_core.vector_store import backend_name, query_records
 
 # PowerShell hosts can still expose a legacy code page; Vietnamese CLI output
 # must not make otherwise valid ingestion/retrieval commands fail.
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 STORE_DIR = ROOT / "storage"
 EMBED_MODEL = "gemini-embedding-2"

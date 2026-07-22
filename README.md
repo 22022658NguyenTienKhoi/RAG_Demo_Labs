@@ -1,42 +1,129 @@
-# Bộ bài thực hành RAG
+# Bộ 3 bài thực hành xây dựng hệ thống RAG
 
-Dự án gồm ba bài thực hành xây dựng hệ thống hỏi đáp tài liệu bằng Gemini:
+Dự án hướng dẫn xây dựng một hệ thống hỏi đáp tài liệu bằng Gemini theo ba cấp độ, từ RAG cơ bản đến chatbot doanh nghiệp có phân quyền và kiểm toán.
 
-1. **RAG Foundation** — đọc tài liệu, tạo embedding và trả lời câu hỏi.
-2. **Advanced/Graph RAG** — bổ sung multi-query, BM25, Reciprocal Rank Fusion, reranking, mở rộng ngữ cảnh cha và Neo4j.
-3. **Enterprise RAG** — bổ sung metadata, phân quyền RBAC, nhật ký kiểm toán, FastAPI và giao diện Streamlit.
+| Bài thực hành | Nội dung chính | Kết quả đầu ra |
+|---|---|---|
+| **Lab 01 — RAG Foundation** | Xử lý tài liệu, chunking, embedding, ChromaDB/Pinecone, citation | Pipeline RAG cơ bản trả lời có dẫn nguồn |
+| **Lab 02 — Advanced & Graph RAG** | Hybrid Search, multi-query, RRF, reranking nhẹ, parent-child, Neo4j | Pipeline truy xuất nâng cao và mở rộng bằng đồ thị |
+| **Lab 03 — Enterprise RAG** | Metadata, RBAC, audit log, PostgreSQL, Redis, FastAPI, Streamlit | Chatbot doanh nghiệp với bốn use case nghiệp vụ |
 
-Bài 01 tạo `storage/foundation.json`. Bài 02 và Bài 03 dùng lại chỉ mục này, vì vậy luôn hoàn thành Bài 01 trước.
+Ba lab dùng chung dữ liệu và chỉ mục. Hãy hoàn thành theo thứ tự **Lab 01 → Lab 02 → Lab 03**.
 
-## 1. Cài đặt toàn bộ môi trường
+## 1. Kiến trúc học tập
 
-Sao chép mã nguồn và chuyển vào thư mục gốc của dự án:
+```text
+Tài liệu trong data/
+        |
+        v
+Lab 01: parse -> chunk -> Gemini embedding -> ChromaDB/Pinecone
+        |
+        v
+Lab 02: vector search + BM25 -> RRF -> rerank -> parent/graph expansion
+        |
+        v
+Lab 03: metadata/RBAC -> FastAPI -> PostgreSQL audit + Redis cache -> Streamlit
+```
+
+Mã dùng chung nằm trong `rag_core/` để tránh sao chép giữa ba lab:
+
+- `document_processing.py`: đọc PDF, DOCX, Excel, Markdown, TXT và ảnh OCR.
+- `runtime.py`: chunking, Gemini embedding/generation, citation và JSON fallback.
+- `vector_store.py`: upsert/query ChromaDB và Pinecone.
+- `catalog.py`: metadata và chính sách truy cập của corpus minh họa.
+- `security.py`: mã hóa nội dung nhạy cảm trước khi lưu vào vector database.
+
+## 2. Chuẩn bị môi trường
+
+### Yêu cầu
+
+- Python 3.10 trở lên; khuyến nghị Python 3.11.
+- Docker Desktop và Docker Compose.
+- Gemini API key.
+- Tùy chọn: Tesseract OCR với language pack `vie` và `eng` nếu xử lý ảnh scan.
+
+Sao chép dự án:
 
 ```powershell
 git clone https://github.com/22022658NguyenTienKhoi/RAG_Demo_Labs.git
 cd RAG_Demo_Labs
 ```
 
-Nếu đã tải dự án, hãy mở PowerShell ngay tại thư mục `RAG_Demo_Labs` (thư mục chứa `README.md` và `requirements.txt`). Tất cả lệnh bên dưới đều được chạy từ thư mục này.
+Tất cả lệnh trong tài liệu này được chạy từ thư mục chứa `README.md` và `docker-compose.yml`.
 
-### Yêu cầu hệ thống
+### Tạo tệp `.env`
 
-- Python 3.10 trở lên; khuyến nghị Python 3.11 vì Docker image cũng dùng phiên bản này.
-- Docker Desktop có Docker Compose để chạy Neo4j, ChromaDB, PostgreSQL và Redis.
-- Một Gemini API key.
-- Tùy chọn: Tesseract OCR cùng bộ ngôn ngữ tiếng Việt và tiếng Anh, chỉ cần khi đọc ảnh scan.
+```env
+GEMINI_API_KEY=thay-bang-api-key-cua-ban
+GEMINI_MODEL=gemini-flash-lite-latest
 
-Kiểm tra các công cụ chính:
+RAG_VECTOR_BACKEND=chroma
+CHROMA_URL=http://localhost:8001
 
-```powershell
-python --version
-docker --version
-docker compose version
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=thay-bang-mat-khau-it-nhat-8-ky-tu
+
+POSTGRES_PASSWORD=thay-bang-mat-khau-postgres
+
+# Khuyến nghị khi index tài liệu confidential/restricted
+RAG_ENCRYPTION_KEY=thay-bang-fernet-key
+RAG_REQUIRE_ENCRYPTION=true
+
+# Chỉ cần khi dùng Pinecone
+PINECONE_API_KEY=
+PINECONE_INDEX=
 ```
 
-### Cài các gói Python
+Tạo Fernet key:
 
-Tạo môi trường ảo và cài dependency của dự án:
+```powershell
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Không commit, in hoặc chia sẻ `.env`. Tệp này đã được loại khỏi Git và Docker build context.
+
+## 3. Cách chạy nhanh bằng Docker
+
+Đây là cách đơn giản nhất để chạy hệ thống hoàn chỉnh:
+
+```powershell
+docker compose up --build
+```
+
+Khi khởi động, API sẽ:
+
+1. Đọc và chia tài liệu nếu chưa có chỉ mục hợp lệ.
+2. Tạo Gemini embedding.
+3. Upsert vector vào ChromaDB.
+4. Khởi tạo metadata catalog trong PostgreSQL.
+5. Khởi động FastAPI và Streamlit.
+
+| Dịch vụ | Địa chỉ |
+|---|---|
+| Streamlit | `http://localhost:8501` |
+| FastAPI Swagger | `http://localhost:8000/docs` |
+| FastAPI health | `http://localhost:8000/health` |
+| ChromaDB | `http://localhost:8001` |
+| Neo4j Browser | `http://localhost:7474` |
+
+Kiểm tra trạng thái:
+
+```powershell
+docker compose ps
+```
+
+Dừng hệ thống mà không xóa dữ liệu:
+
+```powershell
+docker compose stop
+```
+
+## 4. Chạy từng lab để học theo từng bước
+
+Nếu muốn quan sát rõ từng giai đoạn, hãy chạy thủ công theo hướng dẫn dưới đây.
+
+### Cài dependency Python
 
 ```powershell
 python -m venv .venv
@@ -45,131 +132,70 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-`requirements.txt` chỉ chứa dependency chạy ứng dụng: Gemini, xử lý tài liệu, Neo4j, ChromaDB, Pinecone, FastAPI, Streamlit, PostgreSQL và Redis. Không cài sentence-transformers hoặc model reranker riêng.
-
-Để chạy notebook, cài thêm JupyterLab:
-
-```powershell
-python -m pip install jupyterlab
-```
-
-Nếu PowerShell chặn việc kích hoạt môi trường ảo, thay đổi policy cho tiến trình hiện tại rồi thử lại:
+Nếu PowerShell chặn activate script:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv\Scripts\Activate.ps1
 ```
 
-Bạn cũng có thể không kích hoạt môi trường ảo và dùng `.\.venv\Scripts\python.exe` thay cho `python` trong các lệnh phía dưới.
+### Lab 01 — RAG Foundation
 
-### Cấu hình biến môi trường
+Mục tiêu:
 
-Tạo tệp `.env` tại thư mục gốc:
+- Đọc tài liệu nhiều định dạng và chuẩn hóa tiếng Việt.
+- So sánh fixed, semantic và hierarchical chunking.
+- Tạo Gemini embedding một lần.
+- Lưu và truy vấn vector bằng ChromaDB hoặc Pinecone.
+- Sinh câu trả lời chỉ từ context và bắt buộc citation.
 
-```env
-GEMINI_API_KEY=thay-bang-gemini-api-key-cua-ban
-
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=thay-bang-mat-khau-it-nhat-8-ky-tu
-
-POSTGRES_PASSWORD=thay-bang-mat-khau-postgres
-RAG_VECTOR_BACKEND=chroma
-CHROMA_URL=http://localhost:8001
-
-# Khuyến nghị cho tài liệu confidential/restricted; tạo khóa bằng lệnh bên dưới
-RAG_ENCRYPTION_KEY=thay-bang-fernet-key
-RAG_REQUIRE_ENCRYPTION=true
-
-# Chỉ cần khi chọn RAG_VECTOR_BACKEND=pinecone
-PINECONE_API_KEY=thay-bang-pinecone-api-key-cua-ban
-PINECONE_INDEX=ten-index-768-chieu-da-ton-tai
-```
-
-Tạo Fernet key bằng `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. `GEMINI_API_KEY` là bắt buộc khi tạo chỉ mục và hỏi đáp. Không commit hoặc chia sẻ tệp `.env`.
-
-### Cài và chạy cơ sở dữ liệu
-
-Tải tất cả Docker image cơ sở dữ liệu đã khai báo trong dự án:
+Khởi động ChromaDB:
 
 ```powershell
-docker compose pull neo4j chromadb postgres redis
+docker compose up -d chromadb
 ```
 
-Khởi động các dịch vụ dữ liệu:
-
-```powershell
-docker compose up -d chromadb neo4j postgres redis
-```
-
-| Dịch vụ | Địa chỉ | Mã nguồn hiện tại sử dụng |
-|---|---|---|
-| Neo4j Browser | `http://localhost:7474` | Có, Bài 02 |
-| Neo4j Bolt | `bolt://localhost:7687` | Có, Bài 02 |
-| ChromaDB | `http://localhost:8001` | Lưu và truy vấn semantic vector |
-| PostgreSQL | Chỉ trong mạng Docker | Metadata catalog và audit trail |
-| Redis | Chỉ trong mạng Docker | Cache câu trả lời theo role |
-| Pinecone | Dịch vụ cloud | Backend thay thế ChromaDB |
-
-Kiểm tra hoặc dừng các dịch vụ:
-
-```powershell
-docker compose ps
-docker compose stop neo4j chromadb postgres redis
-```
-
-## 2. Chạy Bài 01 — RAG Foundation
-
-Bài 01 đọc tài liệu trong `data/`. Các định dạng được hỗ trợ gồm Markdown, TXT, PDF, DOCX, XLS/XLSX và ảnh. JSON lưu manifest/fallback; ChromaDB là backend local mặc định để lưu và truy vấn vector.
-
-### Bước 1: xem trước cách chia đoạn
-
-Lệnh này không gọi Gemini và không ghi chỉ mục:
+Xem trước số chunk mà không gọi Gemini:
 
 ```powershell
 python 01_rag_foundation/01_chunk_and_index.py --dry-run
 ```
 
-### Bước 2: tạo chỉ mục dùng chung
+Tạo chỉ mục và upsert ChromaDB:
 
 ```powershell
 python 01_rag_foundation/01_chunk_and_index.py --rebuild --backend chroma
 ```
 
-Quá trình lập chỉ mục gọi Gemini Embedding API nên có thể mất thời gian. Chạy lại với `--rebuild` khi tài liệu hoặc cấu hình chunking thay đổi. Nếu không có `--rebuild`, chương trình sẽ dùng lại chỉ mục hợp lệ và chưa thay đổi.
-
-### Bước 3: đặt câu hỏi
+Đặt câu hỏi:
 
 ```powershell
 python 01_rag_foundation/02_retrieve_and_answer.py --backend chroma --ask "Thong tu nao quy dinh ve hoat dong cho vay?"
 ```
 
-Chương trình gửi query embedding đến ChromaDB, lấy các đoạn gần nhất rồi yêu cầu Gemini trả lời kèm tên nguồn, trang/sheet, section và mã chunk.
-
-### Chọn vector database
-
-Lệnh lập chỉ mục đã đồng bộ ChromaDB. Có thể đồng bộ lại hoặc chuyển sang Pinecone bằng cùng một collection contract:
-
-ChromaDB:
-
-```powershell
-docker compose up -d chromadb
-python 01_rag_foundation/03_sync_vector_store.py --backend chroma --collection rag_foundation
-```
-
-Pinecone — index được đặt trong `PINECONE_INDEX` phải được tạo sẵn với số chiều bằng `768`:
+Pinecone dùng cùng giao diện:
 
 ```powershell
 python 01_rag_foundation/03_sync_vector_store.py --backend pinecone --collection rag_foundation
+python 01_rag_foundation/02_retrieve_and_answer.py --backend pinecone --ask "Dieu kien cho vay la gi?"
 ```
 
-## 3. Chạy Bài 02 — Advanced và Graph RAG
+`--backend json` là fallback minh bạch cho mục đích học tập/offline; ChromaDB là backend local mặc định.
 
-Điều kiện trước khi chạy:
+Xem thêm: [Hướng dẫn Lab 01](01_rag_foundation/README.md).
 
-- Bài 01 đã tạo `storage/foundation.json`.
-- Neo4j đang chạy.
-- Các biến `NEO4J_*` đã được cấu hình trong `.env`.
+### Lab 02 — Advanced & Graph RAG
+
+Điều kiện: Lab 01 đã tạo `storage/foundation.json` và vector collection.
+
+Mục tiêu:
+
+- Kết hợp semantic search và BM25.
+- Tạo nhiều biến thể truy vấn.
+- Hợp nhất ranking bằng Reciprocal Rank Fusion.
+- Rerank nhẹ, không cần sentence-transformers.
+- Chỉ lấy chunk lân cận cần thiết để nén context.
+- Mở rộng bằng quan hệ trong Neo4j.
 
 Khởi động Neo4j:
 
@@ -177,192 +203,182 @@ Khởi động Neo4j:
 docker compose up -d neo4j
 ```
 
-### Bước 1: xây dựng đồ thị tài liệu
+Xây cấu trúc `Document → Section → Chunk`:
 
 ```powershell
 python 02_advanced_graph_rag/01_build_neo4j_graph.py
 ```
 
-Script chỉ tạo lại các node có label `RagLab`, sau đó xây quan hệ `Document -> Section -> Chunk`. Script không tạo lại embedding.
-
-### Bước 2: làm giàu ontology
+Làm giàu ontology bằng rule-based NER:
 
 ```powershell
 python 02_advanced_graph_rag/04_enrich_ontology.py
 ```
 
-Script bổ sung Regulation, LegalProvision, Process, Unit, Role và Risk bằng rule-based NER. Thêm `--use-llm` để chạy cả Gemini extraction; các quan hệ gồm `REFERENCES`, `APPLIES_TO`, `REPLACED_BY` và `MENTIONS`.
-
-### Bước 3: chạy demo Hybrid/Graph RAG ngắn
+Thêm Gemini entity extraction nếu muốn minh họa LLM extraction:
 
 ```powershell
-python 02_advanced_graph_rag/02_hybrid_graph_query.py --ask "Thong tu nao quy dinh ve hoat dong cho vay?"
+python 02_advanced_graph_rag/04_enrich_ontology.py --use-llm
 ```
 
-### Bước 4: chạy pipeline truy xuất đầy đủ
+Chạy pipeline đầy đủ:
 
 ```powershell
-python 02_advanced_graph_rag/03_advanced_retrieval_pipeline.py --ask "Dieu kien cho vay la gi?" --top-k 5
+python 02_advanced_graph_rag/03_advanced_retrieval_pipeline.py --backend chroma --top-k 5 --ask "Dieu kien cho vay la gi?"
 ```
 
-Pipeline đầy đủ thực hiện multi-query, Gemini dense retrieval, BM25, Reciprocal Rank Fusion, lexical reranking nhẹ, mở rộng bằng Neo4j và mở rộng ngữ cảnh parent-child. Nếu Neo4j không khả dụng, script vẫn tiếp tục bằng Hybrid RAG và thông báo đã bỏ qua graph expansion.
+Nếu Neo4j không khả dụng, pipeline vẫn chạy Hybrid RAG và thông báo đã bỏ qua graph expansion.
 
-## 4. Chạy Bài 03 — Metadata và Enterprise Chatbot
+Xem thêm: [Hướng dẫn Lab 02](02_advanced_graph_rag/README.md).
 
-Điều kiện bắt buộc: Bài 01 đã tạo `storage/foundation.json`. Neo4j là tùy chọn; nếu đã chạy và được nạp dữ liệu ở Bài 02, API có thể mở rộng bằng chứng qua đồ thị.
+### Lab 03 — Enterprise RAG
 
-### Bước 1: tạo metadata catalog
+Điều kiện: Lab 01 đã hoàn tất; Neo4j từ Lab 02 là tùy chọn.
+
+Mục tiêu:
+
+- Chuẩn hóa metadata và temporal metadata.
+- Lọc quyền trước và ngay trong vector retrieval.
+- Ghi audit trail vào PostgreSQL.
+- Cache câu trả lời theo role bằng Redis.
+- Cung cấp REST API và giao diện Streamlit.
+- Thực hành bốn use case nghiệp vụ.
+
+Tạo metadata catalog:
 
 ```powershell
 python 03_metadata_enterprise_chatbot/01_build_metadata_catalog.py
 ```
 
-Kết quả là `storage/metadata_catalog.json`, gồm loại tài liệu, đơn vị sở hữu, mức phân loại, ngày hiệu lực, thời hạn lưu trữ và danh sách role được phép truy cập.
-
-### Bước 2: xem ma trận RBAC
+Xem ma trận quyền:
 
 ```powershell
 python 03_metadata_enterprise_chatbot/03_rbac_access_matrix.py
 ```
 
-Bốn role minh họa gồm `business_user`, `credit_officer`, `compliance` và `internal_auditor`.
-
-### Bước 3: truy vấn bằng CLI có RBAC
+Thử RBAC bằng CLI:
 
 ```powershell
-python 03_metadata_enterprise_chatbot/02_rbac_retrieve_and_answer.py --role internal_auditor --ask "Quy dinh ve hoat dong cho vay?"
+python 03_metadata_enterprise_chatbot/02_rbac_retrieve_and_answer.py --backend chroma --role internal_auditor --ask "Quy dinh ve hoat dong cho vay?"
 ```
 
-Tài liệu bị từ chối được đưa vào metadata filter ngay trong truy vấn ChromaDB/Pinecone. Khi có `DATABASE_URL`, audit event được ghi vào PostgreSQL; fallback CLI dùng JSONL và chỉ lưu hash câu hỏi.
-
-### Bước 4: chạy REST API
-
-Để chạy đầy đủ ChromaDB, PostgreSQL, Redis, FastAPI và Streamlit bằng Docker:
+Chạy API và UI thuận tiện nhất bằng:
 
 ```powershell
-docker compose up --build
+docker compose up -d api web postgres redis chromadb
 ```
 
-API tự đồng bộ ChromaDB và metadata khi khởi động. FastAPI dùng `8000`, ChromaDB dùng `8001`, Streamlit dùng `8501`.
+Các endpoint chính:
 
-Mở `http://localhost:8000/docs` để thử API bằng Swagger UI.
-
-| Method và endpoint | Chức năng |
+| Endpoint | Use case |
 |---|---|
-| `GET /health` | Kiểm tra trạng thái dịch vụ |
-| `POST /ask` | Hỏi đáp chính sách có RBAC |
-| `POST /compliance/gap-analysis` | So sánh tài liệu nội bộ và văn bản quy định mà role được phép đọc |
-| `POST /compliance/check` | Đánh giá một tài liệu theo yêu cầu kiểm soát |
-| `POST /audit/checklist` | Tạo checklist kiểm toán theo rủi ro dựa trên nguồn truy xuất |
+| `POST /ask` | Tra cứu quy định có RBAC |
+| `POST /compliance/gap-analysis` | So sánh văn bản nội bộ với quy định |
+| `POST /compliance/check` | Kiểm tra một tài liệu theo yêu cầu kiểm soát |
+| `POST /audit/checklist` | Sinh checklist kiểm toán theo rủi ro |
 
-### Bước 5: chạy giao diện Streamlit
-
-Giữ API hoạt động. Mở PowerShell thứ hai tại thư mục gốc của dự án, kích hoạt môi trường ảo, cấu hình địa chỉ API local rồi chạy Streamlit:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-$env:RAG_API_URL = "http://localhost:8000"
-streamlit run 03_metadata_enterprise_chatbot/app.py
-```
-
-### Bước 6: tạo Risk Wiki cho Obsidian
+Tạo Risk Wiki có thể mở bằng Obsidian:
 
 ```powershell
 python 03_metadata_enterprise_chatbot/05_build_risk_wiki.py
 ```
 
-Mở thư mục `risk_wiki/` như một Obsidian vault để duyệt hồ sơ rủi ro và liên kết văn bản.
+Xem thêm: [Hướng dẫn Lab 03](03_metadata_enterprise_chatbot/README.md).
 
-### Bước 7: so sánh và đánh giá
+## 5. Đánh giá chất lượng
 
-RAGAS dùng môi trường đánh giá được pin riêng để không làm nặng hoặc gây xung đột dependency cho API:
+So sánh ba chiến lược chunking:
+
+```powershell
+python evaluation/compare_chunking.py
+```
+
+So sánh precision/recall giữa baseline và Hybrid RAG:
+
+```powershell
+python evaluation/compare_retrieval.py --backend chroma --top-k 5
+```
+
+RAGAS được tách khỏi runtime để không làm nặng API. Cài dependency đánh giá đã pin:
 
 ```powershell
 python -m pip install -r requirements-evaluation.txt
 ```
 
-Dataset phải là một mảng JSON không rỗng. Mỗi phần tử cần có `question`, `answer`, `contexts` và `ground_truth`:
-
-```json
-[
-  {
-    "question": "Thông tư nào quy định hoạt động cho vay?",
-    "answer": "Thông tư 39/2016/TT-NHNN.",
-    "contexts": ["Nội dung nguồn đã truy xuất..."],
-    "ground_truth": "Thông tư 39/2016/TT-NHNN"
-  }
-]
-```
-
-Chỉ kiểm tra cấu trúc dataset, không gọi model đánh giá:
+Kiểm tra dataset:
 
 ```powershell
-python evaluation/compare_chunking.py
-python evaluation/compare_retrieval.py --backend chroma --top-k 5
 python 03_metadata_enterprise_chatbot/04_evaluate.py --dataset evaluation/ragas_dataset.json
 ```
 
-Chạy context precision/recall, faithfulness và answer relevance bằng Gemini judges đã được cấu hình trong script:
+Chạy context precision, context recall, faithfulness và answer relevancy bằng Gemini judge:
 
 ```powershell
 python 03_metadata_enterprise_chatbot/04_evaluate.py --dataset evaluation/ragas_dataset.json --run
 ```
 
-Báo cáo được ghi vào `storage/ragas_evaluation_report.json`.
+## 6. Notebook
 
-## 5. Chạy notebook
-
-Notebook minh họa tương tác cho cùng các pipeline và có thể dùng thay cho hướng dẫn CLI. Đây không phải các bước bắt buộc bổ sung.
-
-```powershell
-jupyter lab
-```
-
-Chạy notebook theo thứ tự:
+Notebook là cách tương tác thay thế cho CLI, không phải bước bắt buộc bổ sung:
 
 1. `01_rag_foundation/01_rag_foundation.ipynb`
 2. `02_advanced_graph_rag/02_advanced_graph_rag.ipynb`
 3. `03_metadata_enterprise_chatbot/03_metadata_enterprise_chatbot.ipynb`
 
-Notebook Bài 02 vẫn cần Neo4j cho chức năng đồ thị. Notebook Bài 02 và Bài 03 vẫn cần chỉ mục do Bài 01 tạo.
+Cài JupyterLab nếu cần:
 
-## Cấu trúc dự án
+```powershell
+python -m pip install jupyterlab
+jupyter lab
+```
+
+## 7. Cấu trúc thư mục
 
 ```text
 RAG_Demo_Labs/
-|-- data/                              Tài liệu nguồn
-|-- evaluation/                        Dataset và script so sánh/evaluation
-|-- risk_wiki/                         Obsidian vault được sinh tự động
-|-- storage/                           Chỉ mục, metadata, báo cáo và audit log
-|-- 01_rag_foundation/                 Đọc tài liệu, lập chỉ mục, retrieval, đồng bộ vector DB
-|-- 02_advanced_graph_rag/             Hybrid retrieval và Neo4j Graph RAG
-|-- 03_metadata_enterprise_chatbot/    Metadata, RBAC, API, UI và đánh giá
-|-- rag_document_processing.py         Đọc PDF, DOCX, bảng tính và ảnh
-|-- rag_gemini_runtime.py              Chunking, Gemini, retrieval và citation dùng chung
-|-- rag_vector_store.py                ChromaDB/Pinecone upsert và query
-|-- rag_enterprise_store.py            PostgreSQL persistence và Redis cache
-|-- requirements.txt                   Dependency Python
-|-- docker-compose.yml                 Cơ sở dữ liệu và container ứng dụng
-`-- Dockerfile                         Image cho API/UI
+|-- 01_rag_foundation/                 Lab 01: ingest, chunk, index, basic RAG
+|-- 02_advanced_graph_rag/             Lab 02: Hybrid RAG và Graph RAG
+|-- 03_metadata_enterprise_chatbot/    Lab 03: metadata, RBAC, API, UI, persistence
+|-- rag_core/                          Thành phần dùng chung của ba lab
+|-- data/                              Tài liệu đầu vào
+|-- storage/                           Manifest, catalog, audit và báo cáo sinh ra
+|-- evaluation/                        Dataset và script đánh giá
+|-- risk_wiki/                         Obsidian-compatible risk profiles
+|-- tests/                             Unit test và integration test
+|-- docker-compose.yml                 Toàn bộ dịch vụ local
+|-- requirements.txt                   Dependency runtime
+`-- requirements-evaluation.txt        Dependency RAGAS tùy chọn
 ```
 
-## Xử lý lỗi thường gặp
+## 8. Bảo mật và phân quyền
 
-- **Tiếng Việt hiển thị sai:** chạy `chcp 65001` trước lệnh Python.
-- **Chỉ mục đã cũ:** chạy lại `python 01_rag_foundation/01_chunk_and_index.py --rebuild`.
-- **Neo4j báo sai mật khẩu:** đảm bảo mật khẩu trong `.env` giống mật khẩu đã dùng khi Neo4j volume được tạo lần đầu.
-- **Không kết nối ChromaDB:** kiểm tra `docker compose ps` và `CHROMA_URL=http://localhost:8001` khi chạy Python trên host.
-- **Không giải mã được tài liệu:** dùng cùng `RAG_ENCRYPTION_KEY` lúc lập chỉ mục và truy vấn.
-- **OCR ảnh thất bại:** cài chương trình Tesseract và các language pack `vie`, `eng`; `pytesseract` chỉ là Python wrapper.
+- `.env` không được đưa vào Git hoặc Docker image.
+- `confidential` và `restricted` có thể được mã hóa bằng Fernet trước khi lưu text vào vector database.
+- RBAC source filter được gửi vào ChromaDB/Pinecone, không chỉ lọc sau retrieval.
+- Audit log chỉ lưu hash câu hỏi, không lưu nội dung câu hỏi thô.
+- Redis cache key bao gồm role và tập tài liệu được phép đọc.
+- Đây là lab đào tạo; production vẫn cần secret manager, TLS, network policy và quản lý khóa tập trung.
 
-## Các tệp được sinh tự động
+## 9. Xử lý lỗi thường gặp
 
-| Tệp | Được tạo bởi |
-|---|---|
-| `storage/foundation.json` | Bài 01 — lập chỉ mục |
-| `storage/metadata_catalog.json` | Bài 03 — tạo metadata |
-| `storage/audit_log.jsonl` | Truy vấn CLI/API của Bài 03 |
-| `storage/ragas_evaluation_report.json` | Đánh giá RAGAS của Bài 03 |
-| `storage/chunking_comparison.json` | So sánh Fixed/Semantic/Hierarchical |
-| `storage/retrieval_comparison.json` | Precision/recall baseline và Hybrid RAG |
-| `risk_wiki/*.md` | Hồ sơ rủi ro liên kết cho Obsidian |
+- **ChromaDB không kết nối:** kiểm tra `docker compose ps` và `CHROMA_URL=http://localhost:8001` khi chạy Python trên host.
+- **Chỉ mục cũ:** chạy lại Lab 01 với `--rebuild`.
+- **Neo4j sai mật khẩu:** mật khẩu trong `.env` phải giống mật khẩu dùng khi volume được tạo lần đầu.
+- **Không giải mã được tài liệu:** dùng cùng `RAG_ENCRYPTION_KEY` khi index và query.
+- **PowerShell hiển thị sai tiếng Việt:** chạy `chcp 65001` trước lệnh Python.
+- **OCR thất bại:** cài Tesseract cùng language pack `vie` và `eng`.
+- **Cổng bận:** FastAPI dùng `8000`, ChromaDB dùng `8001`, Streamlit dùng `8501`.
+
+## 10. Kiểm thử
+
+Unit test:
+
+```powershell
+python -m unittest discover -s tests -p "test_*.py" -v
+```
+
+Integration test cần ChromaDB, PostgreSQL và Redis đang chạy:
+
+```powershell
+docker compose run --rm --no-deps api python tests/integration_services.py
+```

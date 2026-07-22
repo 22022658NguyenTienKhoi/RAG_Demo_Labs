@@ -5,10 +5,10 @@ import argparse
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve(); ROOT = next(p for p in HERE.parents if (p / "rag_gemini_runtime.py").exists())
+HERE = Path(__file__).resolve(); ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
-from rag_gemini_runtime import load_index
-from rag_vector_store import sync_records
+from rag_core.runtime import load_index
+from rag_core.vector_store import sync_records
 
 def main() -> None:
     parser = argparse.ArgumentParser(); parser.add_argument("--backend", choices=["chroma", "pinecone"], required=True)

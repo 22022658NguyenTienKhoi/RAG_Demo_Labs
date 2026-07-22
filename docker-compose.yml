@@ -37,7 +37,7 @@ services:
 
   api:
     build: .
-    command: python start_api.py
+    command: python -m 03_metadata_enterprise_chatbot.start_api
     env_file: .env
     environment:
       RAG_VECTOR_BACKEND: chroma

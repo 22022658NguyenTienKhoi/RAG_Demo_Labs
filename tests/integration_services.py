@@ -9,10 +9,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from document_catalog import document_metadata
-from rag_enterprise_store import append_audit, cache_get, cache_set, database_url, load_catalog, save_catalog
-from rag_gemini_runtime import STORE_DIR, load_index
-from rag_vector_store import query_records, sync_records
+from rag_core.catalog import document_metadata
+from rag_core.runtime import STORE_DIR, load_index
+from rag_core.vector_store import query_records, sync_records
+from importlib import import_module
+
+enterprise_store = import_module("03_metadata_enterprise_chatbot.enterprise_store")
+append_audit = enterprise_store.append_audit
+cache_get = enterprise_store.cache_get
+cache_set = enterprise_store.cache_set
+database_url = enterprise_store.database_url
+load_catalog = enterprise_store.load_catalog
+save_catalog = enterprise_store.save_catalog
 
 records = load_index("foundation")
 sync_records(records, backend="chroma")

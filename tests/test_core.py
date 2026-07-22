@@ -4,9 +4,9 @@ import os
 import unittest
 from unittest.mock import patch
 
-import rag_vector_store
-from document_catalog import document_metadata, is_permitted
-from rag_security import protect_text, reveal_text
+from rag_core import vector_store
+from rag_core.catalog import document_metadata, is_permitted
+from rag_core.security import protect_text, reveal_text
 
 
 class FakeCollection:
@@ -28,15 +28,15 @@ class FakeCollection:
 class VectorStoreTests(unittest.TestCase):
     def test_chroma_query_applies_source_filter(self):
         collection = FakeCollection()
-        with patch.object(rag_vector_store, "_chroma_collection", return_value=collection):
-            hits = rag_vector_store.query_records([0.1, 0.2], backend="chroma", allowed_sources=["allowed.md"])
+        with patch.object(vector_store, "_chroma_collection", return_value=collection):
+            hits = vector_store.query_records([0.1, 0.2], backend="chroma", allowed_sources=["allowed.md"])
         self.assertEqual(collection.where, {"source": {"$in": ["allowed.md"]}})
         self.assertEqual(hits[0]["source"], "allowed.md")
         self.assertAlmostEqual(hits[0]["score"], 0.8)
 
     def test_empty_authorization_does_not_query_backend(self):
-        with patch.object(rag_vector_store, "_chroma_collection") as collection:
-            self.assertEqual(rag_vector_store.query_records([0.1], backend="chroma", allowed_sources=[]), [])
+        with patch.object(vector_store, "_chroma_collection") as collection:
+            self.assertEqual(vector_store.query_records([0.1], backend="chroma", allowed_sources=[]), [])
         collection.assert_not_called()
 
 

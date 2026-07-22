@@ -5,8 +5,8 @@ import json
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve(); ROOT = next(p for p in HERE.parents if (p / "rag_gemini_runtime.py").exists()); sys.path.insert(0, str(ROOT))
-from rag_gemini_runtime import STORE_DIR
+HERE = Path(__file__).resolve(); ROOT = HERE.parents[1]; sys.path.insert(0, str(ROOT))
+from rag_core.runtime import STORE_DIR
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", required=True, help="JSON array: question, answer, contexts, ground_truth")

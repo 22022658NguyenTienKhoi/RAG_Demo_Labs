@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from rag_gemini_runtime import STORE_DIR, load_index, retrieve
+from rag_core.runtime import STORE_DIR, load_index, retrieve
 
 spec = importlib.util.spec_from_file_location("advanced", ROOT / "02_advanced_graph_rag" / "03_advanced_retrieval_pipeline.py")
 advanced = importlib.util.module_from_spec(spec)

@@ -1,0 +1,10 @@
+{
+  "samples": 2,
+  "metrics": [
+    "context_precision",
+    "context_recall",
+    "faithfulness",
+    "answer_relevancy"
+  ],
+  "status": "validated"
+}

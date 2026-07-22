@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import os
 
-from document_catalog import document_metadata
-from rag_enterprise_store import save_catalog
-from rag_gemini_runtime import STORE_DIR, build_or_load_index
-from rag_vector_store import sync_records
+from rag_core.catalog import document_metadata
+from rag_core.runtime import STORE_DIR, build_or_load_index
+from rag_core.vector_store import sync_records
+from .enterprise_store import save_catalog
 
 
 def main() -> None:

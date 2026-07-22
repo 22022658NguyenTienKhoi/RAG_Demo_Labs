@@ -10,9 +10,9 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
-ROOT = next(p for p in HERE.parents if (p / "rag_gemini_runtime.py").exists())
+ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
-from rag_gemini_runtime import infer, load_index, retrieve
+from rag_core.runtime import infer, load_index, retrieve
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 

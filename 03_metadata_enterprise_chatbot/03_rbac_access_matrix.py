@@ -4,9 +4,9 @@ import sys
 from pathlib import Path
 
 HERE = Path(globals().get("__file__", Path.cwd())).resolve()
-PROJECT_ROOT = next(p for p in (HERE.parent, *HERE.parents, Path.cwd(), Path.cwd() / "RAG_Demo_Labs") if (p / "rag_gemini_runtime.py").exists())
+PROJECT_ROOT = HERE.parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
-from rag_gemini_runtime import STORE_DIR
+from rag_core.runtime import STORE_DIR
 
 CLEARANCE={
     'business_user': {'public'},

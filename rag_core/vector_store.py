@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from typing import Any
 from urllib.parse import urlparse
-from rag_security import protect_text, reveal_text
+from rag_core.security import protect_text, reveal_text
 
 COLLECTION = "rag_foundation"
 BACKENDS = {"json", "chroma", "pinecone"}
@@ -110,7 +110,7 @@ def query_records(
     """Query a vector backend, applying document authorization server-side."""
     selected = backend_name(backend)
     if selected == "json":
-        raise ValueError("JSON similarity search is implemented by rag_gemini_runtime.retrieve")
+        raise ValueError("JSON similarity search is implemented by rag_core.runtime.retrieve")
     if allowed_sources == []:
         return []
 

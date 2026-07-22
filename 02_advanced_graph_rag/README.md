@@ -1,10 +1,41 @@
-# Bài thực hành 02 — RAG nâng cao và Graph RAG
+# Lab 02 — Advanced RAG và Graph RAG
 
-Bài thực hành 02 dùng ChromaDB/Pinecone cho semantic search và manifest `../storage/foundation.json` cho BM25, parent expansion và Neo4j. Bài này **không** tạo embedding tài liệu lần nữa.
+Lab này nâng cấp semantic search của Lab 01 thành pipeline Hybrid RAG và bổ sung mở rộng ngữ cảnh bằng Neo4j.
 
-1. Hoàn tất Giai đoạn 1 của Bài thực hành 01: `cd ../01_rag_foundation; python 01_chunk_and_index.py --rebuild --backend chroma`
-2. Xây dựng Neo4j từ các đoạn đó: `cd ../02_advanced_graph_rag; python 01_build_neo4j_graph.py`
-3. Truy vấn Hybrid RRF + Graph RAG: `python 02_hybrid_graph_query.py --ask "Câu hỏi"`
-4. Chạy pipeline đầy đủ: `python 03_advanced_retrieval_pipeline.py --backend chroma --ask "Câu hỏi"`
+## Mục tiêu
 
-Pipeline dùng multi-query, vector search, BM25, RRF và lexical reranking nhẹ; không cần sentence-transformers.
+- Kết hợp vector search và BM25.
+- Tạo multi-query và hợp nhất ranking bằng RRF.
+- Rerank nhẹ bằng lexical overlap, không tải model riêng.
+- Mở rộng chunk lân cận nhưng giới hạn context để giảm noise.
+- Mô hình hóa `Document → Section → Chunk` trong Neo4j.
+- Trích xuất Regulation, LegalProvision, Process, Unit, Role và Risk.
+
+## Điều kiện
+
+- Lab 01 đã tạo `storage/foundation.json`.
+- ChromaDB đã có collection `rag_foundation`.
+- `NEO4J_*` đã được cấu hình trong `.env`.
+
+## Thứ tự chạy
+
+```powershell
+docker compose up -d chromadb neo4j
+python 02_advanced_graph_rag/01_build_neo4j_graph.py
+python 02_advanced_graph_rag/04_enrich_ontology.py
+python 02_advanced_graph_rag/03_advanced_retrieval_pipeline.py --backend chroma --top-k 5 --ask "Dieu kien cho vay la gi?"
+```
+
+Thêm `--use-llm` vào script ontology nếu muốn kết hợp rule-based NER với Gemini extraction.
+
+## Các script
+
+| Tệp | Vai trò |
+|---|---|
+| `01_build_neo4j_graph.py` | Nạp cấu trúc tài liệu vào Neo4j |
+| `02_hybrid_graph_query.py` | Demo ngắn Hybrid RRF và graph facts |
+| `03_advanced_retrieval_pipeline.py` | Pipeline multi-query, vector + BM25, RRF, rerank, parent/graph expansion |
+| `04_enrich_ontology.py` | Tạo entity và quan hệ ontology |
+| `02_advanced_graph_rag.ipynb` | Phiên bản notebook tương tác |
+
+Nếu Neo4j không hoạt động, pipeline vẫn tiếp tục bằng Hybrid RAG.

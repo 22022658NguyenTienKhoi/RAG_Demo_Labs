@@ -7,12 +7,12 @@ import sys
 from pathlib import Path
 
 HERE = Path(globals().get("__file__", Path.cwd())).resolve()
-PROJECT_ROOT = next(p for p in (HERE.parent, *HERE.parents, Path.cwd(), Path.cwd() / "RAG_Demo_Labs") if (p / "rag_gemini_runtime.py").exists())
+PROJECT_ROOT = HERE.parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from rag_gemini_runtime import STORE_DIR, load_index
-from document_catalog import document_metadata
-from rag_enterprise_store import save_catalog
+from rag_core.runtime import STORE_DIR, load_index
+from rag_core.catalog import document_metadata
+from enterprise_store import save_catalog
 
 
 records = load_index("foundation")  # Chỉ mục Bài 01; không chia đoạn/tạo embedding lại.

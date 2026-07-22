@@ -9,12 +9,12 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
-ROOT = next(path for path in HERE.parents if (path / "rag_gemini_runtime.py").exists())
+ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
 
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
-from rag_gemini_runtime import GENERATE_MODEL, get_client, load_index
+from rag_core.runtime import GENERATE_MODEL, get_client, load_index
 
 LABELS = {"Regulation", "LegalProvision", "Process", "Unit", "Role", "Risk"}
 

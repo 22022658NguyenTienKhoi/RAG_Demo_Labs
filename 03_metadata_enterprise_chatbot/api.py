@@ -12,12 +12,12 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 HERE = Path(__file__).resolve()
-ROOT = next(path for path in HERE.parents if (path / "rag_gemini_runtime.py").exists())
+ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
 
-from document_catalog import ROLE_CLEARANCE, is_permitted
-from rag_enterprise_store import append_audit, cache_get, cache_set, load_catalog, service_health
-from rag_gemini_runtime import STORE_DIR, infer, load_index
+from rag_core.catalog import ROLE_CLEARANCE, is_permitted
+from rag_core.runtime import STORE_DIR, infer, load_index
+from .enterprise_store import append_audit, cache_get, cache_set, load_catalog, service_health
 
 _pipeline_spec = importlib.util.spec_from_file_location(
     "advanced_pipeline", ROOT / "02_advanced_graph_rag" / "03_advanced_retrieval_pipeline.py"

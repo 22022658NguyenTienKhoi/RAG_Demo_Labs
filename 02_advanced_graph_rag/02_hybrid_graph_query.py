@@ -8,12 +8,12 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 HERE = Path(globals().get("__file__", Path.cwd())).resolve()
-PROJECT_ROOT = next(p for p in (HERE.parent, *HERE.parents, Path.cwd(), Path.cwd() / "RAG_Demo_Labs") if (p / "rag_gemini_runtime.py").exists())
+PROJECT_ROOT = HERE.parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
-from rag_gemini_runtime import ROOT, infer, load_index, retrieve
+from rag_core.runtime import ROOT, infer, load_index, retrieve
 
 def words(text): return re.findall(r"[\wÀ-ỹ]+", text.lower())
 def bm25(question, records):
