@@ -1,0 +1,90 @@
+{
+  "TT_02_2023_NHNN.md": {
+    "document_id": "TT_02_2023_NHNN",
+    "source": "TT_02_2023_NHNN.md",
+    "version": "source-current",
+    "retention_years": 10,
+    "status": "effective",
+    "valid_from": "2023-04-24",
+    "valid_to": null,
+    "replaces": [],
+    "replaced_by": [],
+    "document_type": "NHNN_circular",
+    "title": "Cơ cấu lại thời hạn trả nợ",
+    "owner_department": "Compliance",
+    "classification": "public",
+    "effective_date": "2023-04-24",
+    "allowed_roles": [
+      "business_user",
+      "credit_officer",
+      "compliance",
+      "internal_auditor"
+    ],
+    "confidentiality": "public"
+  },
+  "TT_06_2023_NHNN.md": {
+    "document_id": "TT_06_2023_NHNN",
+    "source": "TT_06_2023_NHNN.md",
+    "version": "source-current",
+    "retention_years": 10,
+    "status": "effective",
+    "valid_from": "2023-06-28",
+    "valid_to": null,
+    "replaces": [],
+    "replaced_by": [],
+    "document_type": "NHNN_circular",
+    "title": "Sửa đổi quy định cho vay",
+    "owner_department": "Credit",
+    "classification": "internal",
+    "effective_date": "2023-06-28",
+    "allowed_roles": [
+      "credit_officer",
+      "compliance",
+      "internal_auditor"
+    ],
+    "confidentiality": "internal"
+  },
+  "TT_39_2016_NHNN.md": {
+    "document_id": "TT_39_2016_NHNN",
+    "source": "TT_39_2016_NHNN.md",
+    "version": "source-current",
+    "retention_years": 10,
+    "status": "effective",
+    "valid_from": "2017-03-15",
+    "valid_to": null,
+    "replaces": [],
+    "replaced_by": [],
+    "document_type": "NHNN_circular",
+    "title": "Hoạt động cho vay",
+    "owner_department": "Credit",
+    "classification": "confidential",
+    "effective_date": "2017-03-15",
+    "allowed_roles": [
+      "credit_officer",
+      "compliance",
+      "internal_auditor"
+    ],
+    "confidentiality": "confidential"
+  },
+  "chinh_sach_tin_dung.md": {
+    "document_id": "chinh_sach_tin_dung",
+    "source": "chinh_sach_tin_dung.md",
+    "version": "source-current",
+    "retention_years": 10,
+    "status": "effective",
+    "valid_from": null,
+    "valid_to": null,
+    "replaces": [],
+    "replaced_by": [],
+    "document_type": "internal_credit_policy",
+    "title": "Chính sách tín dụng nội bộ",
+    "owner_department": "Credit Risk",
+    "classification": "restricted",
+    "effective_date": "see_source_document",
+    "allowed_roles": [
+      "compliance",
+      "internal_auditor"
+    ],
+    "confidentiality": "restricted"
+  }
+}

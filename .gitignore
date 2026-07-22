@@ -1,0 +1,5 @@
+/.agents
+/.env
+/agent_requirements
+/IMPLEMENTATION_REQUIREMENTS.md
+/__pycache__
