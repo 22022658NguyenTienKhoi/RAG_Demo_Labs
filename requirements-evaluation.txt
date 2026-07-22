@@ -1,0 +1,6 @@
+# Optional, pinned evaluation environment; not required by the API container.
+-r requirements.txt
+ragas==0.2.15
+datasets>=2.20.0,<4.0.0
+langchain-google-genai>=2.0.0,<3.0.0
+langchain-community>=0.3.0,<0.4.0

@@ -1,0 +1,14 @@
+[
+  {
+    "question": "Thông tư nào quy định hoạt động cho vay của tổ chức tín dụng đối với khách hàng?",
+    "answer": "Thông tư 39/2016/TT-NHNN quy định hoạt động cho vay của tổ chức tín dụng, chi nhánh ngân hàng nước ngoài đối với khách hàng.",
+    "contexts": ["Thống đốc Ngân hàng Nhà nước Việt Nam ban hành Thông tư quy định về hoạt động cho vay của tổ chức tín dụng, chi nhánh ngân hàng nước ngoài đối với khách hàng."],
+    "ground_truth": "Thông tư 39/2016/TT-NHNN."
+  },
+  {
+    "question": "Thông tư 02/2023/TT-NHNN hỗ trợ khách hàng gặp khó khăn bằng biện pháp nào?",
+    "answer": "Thông tư quy định cơ cấu lại thời hạn trả nợ và giữ nguyên nhóm nợ nhằm hỗ trợ khách hàng gặp khó khăn.",
+    "contexts": ["Việc tổ chức tín dụng, chi nhánh ngân hàng nước ngoài cơ cấu lại thời hạn trả nợ và giữ nguyên nhóm nợ nhằm hỗ trợ khách hàng gặp khó khăn."],
+    "ground_truth": "Cơ cấu lại thời hạn trả nợ và giữ nguyên nhóm nợ."
+  }
+]

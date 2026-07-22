@@ -1,11 +1,9 @@
-"""FastAPI enterprise RAG service with RBAC, grounding checks and audit APIs."""
+"""Enterprise RAG API: vector search, RBAC, PostgreSQL audit and Redis cache."""
 from __future__ import annotations
 
 import hashlib
 import importlib.util
-import json
 import os
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,84 +11,165 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-HERE = Path(__file__).resolve(); ROOT = next(p for p in HERE.parents if (p / "rag_gemini_runtime.py").exists())
+HERE = Path(__file__).resolve()
+ROOT = next(path for path in HERE.parents if (path / "rag_gemini_runtime.py").exists())
 sys.path.insert(0, str(ROOT))
-from rag_gemini_runtime import STORE_DIR, infer, load_index, retrieve
 
-_pipeline_spec = importlib.util.spec_from_file_location("advanced_pipeline", ROOT / "02_advanced_graph_rag" / "03_advanced_retrieval_pipeline.py")
+from document_catalog import ROLE_CLEARANCE, is_permitted
+from rag_enterprise_store import append_audit, cache_get, cache_set, load_catalog, service_health
+from rag_gemini_runtime import STORE_DIR, infer, load_index
+
+_pipeline_spec = importlib.util.spec_from_file_location(
+    "advanced_pipeline", ROOT / "02_advanced_graph_rag" / "03_advanced_retrieval_pipeline.py"
+)
 _pipeline = importlib.util.module_from_spec(_pipeline_spec)
 assert _pipeline_spec and _pipeline_spec.loader
 _pipeline_spec.loader.exec_module(_pipeline)
 
-app = FastAPI(title="Enterprise RAG Lab", version="2.0")
-ROLE_CLEARANCE = {"business_user": {"public"}, "credit_officer": {"public", "internal", "confidential"}, "compliance": {"public", "internal", "confidential", "restricted"}, "internal_auditor": {"public", "internal", "confidential", "restricted"}}
+app = FastAPI(title="Enterprise RAG Lab", version="3.0")
+
 
 class Question(BaseModel):
     question: str = Field(min_length=3)
     role: str = "internal_auditor"
 
+
 class GapRequest(Question):
     internal_document: str
     regulatory_document: str
 
+
+class ComplianceRequest(Question):
+    document: str
+    requirement: str = Field(min_length=3)
+
+
 class ChecklistRequest(Question):
     audit_scope: str = Field(min_length=3)
+
 
 def permitted(role: str) -> list[dict]:
     if role not in ROLE_CLEARANCE:
         raise HTTPException(403, "Unknown role")
-    catalog_file = STORE_DIR / "metadata_catalog.json"
-    if not catalog_file.exists():
-        raise HTTPException(503, "Run 01_build_metadata_catalog.py first")
-    catalog = json.loads(catalog_file.read_text(encoding="utf-8")); records = load_index("foundation")
-    return [{**record, "metadata": catalog[record["source"]]} for record in records if role in catalog[record["source"]]["allowed_roles"] and catalog[record["source"]]["classification"] in ROLE_CLEARANCE[role]]
+    try:
+        catalog = load_catalog(STORE_DIR / "metadata_catalog.json")
+        records = load_index("foundation")
+    except RuntimeError as error:
+        raise HTTPException(503, str(error)) from error
+    return [
+        {**record, "metadata": catalog[record["source"]]}
+        for record in records
+        if record["source"] in catalog and is_permitted(role, catalog[record["source"]])
+    ]
 
-def audit(event: str, role: str, question: str, hits: list[dict]) -> None:
-    STORE_DIR.mkdir(exist_ok=True)
-    entry = {"time": datetime.now(timezone.utc).isoformat(), "event": event, "role": role, "question_hash": hashlib.sha256(question.encode()).hexdigest(), "sources": [hit["source"] for hit in hits]}
-    with (STORE_DIR / "audit_log.jsonl").open("a", encoding="utf-8") as log:
-        log.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+def audit(event: str, role: str, question: str, hits: list[dict], outcome: dict | None = None) -> None:
+    entry = {
+        "time": datetime.now(timezone.utc).isoformat(),
+        "event": event,
+        "role": role,
+        "question_hash": hashlib.sha256(question.encode("utf-8")).hexdigest(),
+        "sources": sorted({hit["source"] for hit in hits}),
+        "outcome": outcome or {},
+    }
+    append_audit(entry, STORE_DIR / "audit_log.jsonl")
+
 
 def hybrid_graph_retrieve(question: str, records: list[dict]) -> list[dict]:
-    """Use the Lab 02 hybrid/RRF/rerank/graph path after the RBAC filter."""
-    rankings = []
-    for query in _pipeline.query_variants(question):
-        rankings.append([(hit["score"], hit) for hit in retrieve(query, records, top_k=len(records))])
-        rankings.append(_pipeline.bm25(query, records))
-    reranked = _pipeline.rerank(question, _pipeline.rrf(rankings)[:20])[:5]
+    """Apply RBAC in the vector query, then hybrid/rerank/graph expansion."""
+    allowed_sources = sorted({record["source"] for record in records})
+    reranked = _pipeline.hybrid_retrieve(
+        question,
+        records,
+        top_k=5,
+        backend=os.getenv("RAG_VECTOR_BACKEND", "chroma"),
+        allowed_sources=allowed_sources,
+    )
     return _pipeline.expand_parents(_pipeline.expand_graph(reranked, records), records)
 
+
 def grounded_answer(question: str, role: str, records: list[dict], purpose: str = "policy_lookup") -> dict:
+    sources = sorted({record["source"] for record in records})
+    cache_material = "|".join([purpose, role, question, *sources, os.getenv("RAG_VECTOR_BACKEND", "chroma")])
+    cache_key = "rag:answer:" + hashlib.sha256(cache_material.encode("utf-8")).hexdigest()
+    try:
+        cached = cache_get(cache_key)
+    except Exception:
+        cached = None
+    if cached is not None:
+        cached["cache_hit"] = True
+        return cached
+
     hits = hybrid_graph_retrieve(question, records)
     answer = infer(question, hits, f"Requester role: {role}. Task: {purpose}. Mandatory citations and grounded answer only.")
     expected = {f"[SOURCE: {hit['source']}" for hit in hits}
     cited = any(marker in answer for marker in expected)
-    confidence = round(sum(max(float(hit.get("score", 0)), 0) for hit in hits) / max(len(hits), 1), 3)
-    return {"answer": answer, "hits": hits, "grounding_check": {"passed": cited, "required_citation_found": cited}, "confidence_score": confidence}
+    dense_scores = [max(float(hit.get("dense_score", 0)), 0) for hit in hits]
+    confidence = round(sum(dense_scores) / max(len(dense_scores), 1), 3)
+    safe_hits = [{key: value for key, value in hit.items() if key != "embedding"} for hit in hits]
+    result = {
+        "answer": answer,
+        "hits": safe_hits,
+        "grounding_check": {"passed": cited, "required_citation_found": cited},
+        "confidence_score": confidence,
+        "cache_hit": False,
+    }
+    try:
+        cache_set(cache_key, result)
+    except Exception:
+        pass
+    return result
+
+
+def citations(hits: list[dict]) -> list[dict]:
+    return [
+        {"source": hit["source"], "chunk_id": hit["chunk_id"], "page": hit.get("page"), "section": hit.get("parent_title")}
+        for hit in hits
+    ]
+
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
+    return {
+        "status": "ok",
+        "time": datetime.now(timezone.utc).isoformat(),
+        "vector_backend": os.getenv("RAG_VECTOR_BACKEND", "chroma"),
+        "services": service_health(),
+    }
+
 
 @app.post("/ask")
 def ask(payload: Question):
     result = grounded_answer(payload.question, payload.role, permitted(payload.role))
-    audit("policy_lookup", payload.role, payload.question, result["hits"])
-    return {"answer": result["answer"], "citations": [{"source": h["source"], "chunk_id": h["chunk_id"], "page": h.get("page"), "section": h.get("parent_title")} for h in result["hits"]], "confidence_score": result["confidence_score"], "grounding_check": result["grounding_check"]}
+    audit("policy_lookup", payload.role, payload.question, result["hits"], result["grounding_check"])
+    return {"answer": result["answer"], "citations": citations(result["hits"]), "confidence_score": result["confidence_score"], "grounding_check": result["grounding_check"], "cache_hit": result["cache_hit"]}
+
 
 @app.post("/compliance/gap-analysis")
 def gap_analysis(payload: GapRequest):
-    records = [r for r in permitted(payload.role) if r["source"] in {payload.internal_document, payload.regulatory_document}]
-    if {payload.internal_document, payload.regulatory_document} - {r["source"] for r in records}:
+    records = [record for record in permitted(payload.role) if record["source"] in {payload.internal_document, payload.regulatory_document}]
+    if {payload.internal_document, payload.regulatory_document} - {record["source"] for record in records}:
         raise HTTPException(403, "One or both requested documents are unavailable to this role")
-    question = f"So sánh các điểm khác biệt, nghĩa vụ và khoảng trống giữa {payload.internal_document} và {payload.regulatory_document}. {payload.question}"
+    question = f"So sánh nghĩa vụ và khoảng trống giữa {payload.internal_document} và {payload.regulatory_document}. {payload.question}"
     result = grounded_answer(question, payload.role, records, "compliance_gap_analysis")
-    audit("compliance_gap_analysis", payload.role, question, result["hits"])
-    return {"analysis": result["answer"], "citations": [{"source": h["source"], "chunk_id": h["chunk_id"]} for h in result["hits"]], "grounding_check": result["grounding_check"]}
+    audit("compliance_gap_analysis", payload.role, question, result["hits"], result["grounding_check"])
+    return {"analysis": result["answer"], "citations": citations(result["hits"]), "grounding_check": result["grounding_check"], "cache_hit": result["cache_hit"]}
+
+
+@app.post("/compliance/check")
+def compliance_check(payload: ComplianceRequest):
+    records = [record for record in permitted(payload.role) if record["source"] == payload.document]
+    if not records:
+        raise HTTPException(403, "The requested document is unavailable to this role")
+    question = f"Đánh giá tài liệu {payload.document} đối với yêu cầu sau: {payload.requirement}. {payload.question}. Kết luận COMPLIANT, PARTIAL hoặc NON_COMPLIANT và nêu bằng chứng."
+    result = grounded_answer(question, payload.role, records, "compliance_checker")
+    audit("compliance_checker", payload.role, question, result["hits"], result["grounding_check"])
+    return {"assessment": result["answer"], "citations": citations(result["hits"]), "grounding_check": result["grounding_check"], "cache_hit": result["cache_hit"]}
+
 
 @app.post("/audit/checklist")
 def audit_checklist(payload: ChecklistRequest):
     question = f"Lập checklist kiểm toán theo rủi ro cho phạm vi: {payload.audit_scope}. Yêu cầu bổ sung: {payload.question}"
     result = grounded_answer(question, payload.role, permitted(payload.role), "risk_based_audit_checklist")
-    audit("audit_checklist", payload.role, question, result["hits"])
-    return {"checklist": result["answer"], "citations": [{"source": h["source"], "chunk_id": h["chunk_id"]} for h in result["hits"]], "grounding_check": result["grounding_check"]}
+    audit("audit_checklist", payload.role, question, result["hits"], result["grounding_check"])
+    return {"checklist": result["answer"], "citations": citations(result["hits"]), "grounding_check": result["grounding_check"], "cache_hit": result["cache_hit"]}

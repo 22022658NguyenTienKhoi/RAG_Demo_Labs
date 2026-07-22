@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from rag_document_processing import document_files, extract_document, normalize_vietnamese
+from rag_vector_store import backend_name, query_records
 
 # PowerShell hosts can still expose a legacy code page; Vietnamese CLI output
 # must not make otherwise valid ingestion/retrieval commands fail.
@@ -128,10 +129,32 @@ def chunk_document(path: Path, chunk_size: int = 1400, overlap: int = 220, strat
 
 
 def corpus_fingerprint(strategy: str = "hierarchical", chunk_size: int = 1400, overlap: int = 220) -> str:
-    """Fingerprint both source files and the indexing implementation settings."""
-    raw = "|".join(f"{p.name}:{p.stat().st_mtime_ns}:{p.stat().st_size}" for p in markdown_files())
-    raw += f"|strategy={strategy}|chunk_size={chunk_size}|overlap={overlap}|chunker_v=2"
-    return hashlib.sha256(raw.encode()).hexdigest()
+    """Content-based fingerprint that is stable across host and containers."""
+    digest = hashlib.sha256()
+    for path in markdown_files():
+        digest.update(path.name.encode("utf-8"))
+        digest.update(hashlib.sha256(path.read_bytes()).digest())
+    digest.update(f"strategy={strategy}|chunk_size={chunk_size}|overlap={overlap}|chunker_v=3".encode())
+    return digest.hexdigest()
+
+
+def _valid_records(saved: dict) -> bool:
+    expected_sources = {path.name for path in markdown_files()}
+    indexed_sources = {record.get("source") for record in saved.get("records", [])}
+    return indexed_sources == expected_sources and all(
+        {"page", "parent_id", "parent_title", "embedding"} <= record.keys()
+        for record in saved.get("records", [])
+    )
+
+
+def _migrate_legacy_fingerprint(saved: dict, target: Path, fingerprint: str) -> bool:
+    """One-time migration from the old host-mtime fingerprint format."""
+    if saved.get("fingerprint_scheme") or not _valid_records(saved):
+        return False
+    saved["fingerprint"] = fingerprint
+    saved["fingerprint_scheme"] = "content-sha256-v1"
+    target.write_text(json.dumps(saved, ensure_ascii=False), encoding="utf-8")
+    return True
 
 
 def embed(client: genai.Client, texts: list[str], task_type: str) -> list[list[float]]:
@@ -167,11 +190,9 @@ def build_or_load_index(name: str, force: bool = False, strategy: str = "hierarc
     fingerprint = corpus_fingerprint(strategy=strategy)
     if target.exists() and not force:
         saved = json.loads(target.read_text(encoding="utf-8"))
-        expected_sources = {path.name for path in markdown_files()}
-        indexed_sources = {record.get("source") for record in saved.get("records", [])}
-        # Không tái sử dụng chỉ mục tạo trước khi có đủ nguồn Markdown.
-        has_complete_metadata = all({"page", "parent_id", "parent_title", "embedding"} <= record.keys() for record in saved.get("records", []))
-        if saved.get("fingerprint") == fingerprint and indexed_sources == expected_sources and has_complete_metadata:
+        if _valid_records(saved) and (
+            saved.get("fingerprint") == fingerprint or _migrate_legacy_fingerprint(saved, target, fingerprint)
+        ):
             return saved["records"]
     chunks_by_source = {path.name: chunk_document(path, strategy=strategy) for path in markdown_files()}
     docs = [chunk for chunks in chunks_by_source.values() for chunk in chunks]
@@ -186,7 +207,7 @@ def build_or_load_index(name: str, force: bool = False, strategy: str = "hierarc
     if len(vectors) != len(docs):
         raise RuntimeError("Từ chối lưu chỉ mục vector không đầy đủ.")
     records = [{**doc, "embedding": vector} for doc, vector in zip(docs, vectors)]
-    target.write_text(json.dumps({"fingerprint": fingerprint, "created_at": datetime.now(timezone.utc).isoformat(), "records": records}, ensure_ascii=False), encoding="utf-8")
+    target.write_text(json.dumps({"fingerprint": fingerprint, "fingerprint_scheme": "content-sha256-v1", "created_at": datetime.now(timezone.utc).isoformat(), "records": records}, ensure_ascii=False), encoding="utf-8")
     return records
 
 
@@ -196,10 +217,10 @@ def load_index(name: str) -> list[dict]:
     if not target.exists():
         raise RuntimeError(f"Chỉ mục '{name}' chưa tồn tại. Hãy chạy script chia đoạn và lập chỉ mục trước.")
     saved = json.loads(target.read_text(encoding="utf-8"))
-    expected_sources = {path.name for path in markdown_files()}
-    indexed_sources = {record.get("source") for record in saved.get("records", [])}
-    has_complete_metadata = all({"page", "parent_id", "parent_title", "embedding"} <= record.keys() for record in saved.get("records", []))
-    if saved.get("fingerprint") != corpus_fingerprint() or indexed_sources != expected_sources or not has_complete_metadata:
+    fingerprint = corpus_fingerprint()
+    if not _valid_records(saved) or not (
+        saved.get("fingerprint") == fingerprint or _migrate_legacy_fingerprint(saved, target, fingerprint)
+    ):
         raise RuntimeError("Tài liệu đã thay đổi hoặc chỉ mục chưa đầy đủ. Hãy chạy script lập chỉ mục với --rebuild.")
     return saved["records"]
 
@@ -216,10 +237,29 @@ def normalized_tokens(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9_]+", text))
 
 
-def retrieve(question: str, records: list[dict], top_k: int = 5) -> list[dict]:
+def retrieve(
+    question: str,
+    records: list[dict] | None = None,
+    top_k: int = 5,
+    backend: str | None = None,
+    allowed_sources: list[str] | None = None,
+) -> list[dict]:
+    """Retrieve from ChromaDB/Pinecone, or explicitly use local JSON search.
+
+    ``allowed_sources`` is forwarded to the vector database as a metadata
+    filter, ensuring forbidden documents are never returned by semantic search.
+    """
     # Assign client to a variable instead of passing a temporary call
     client = get_client()
     query = embed(client, [question], "RETRIEVAL_QUERY")[0]
+    selected = backend_name(backend)
+    if selected != "json":
+        return query_records(query, top_k=top_k, backend=selected, allowed_sources=allowed_sources)
+    if records is None:
+        records = load_index("foundation")
+    if allowed_sources is not None:
+        allowed = set(allowed_sources)
+        records = [record for record in records if record["source"] in allowed]
     query_terms = normalized_tokens(question)
     ranked = []
     for record in records:

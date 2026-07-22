@@ -80,7 +80,7 @@
     "title": "Chính sách tín dụng nội bộ",
     "owner_department": "Credit Risk",
     "classification": "restricted",
-    "effective_date": "see_source_document",
+    "effective_date": null,
     "allowed_roles": [
       "compliance",
       "internal_auditor"

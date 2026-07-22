@@ -58,4 +58,5 @@ def extract_document(path: Path) -> list[dict]:
 
 
 def document_files(data_dir: Path) -> list[Path]:
-    return sorted(path for path in data_dir.iterdir() if path.is_file() and path.suffix.lower() in SUPPORTED_SUFFIXES and path.name.lower() != "readme.md")
+    files = (path for path in data_dir.iterdir() if path.is_file() and path.suffix.lower() in SUPPORTED_SUFFIXES and path.name.lower() != "readme.md")
+    return sorted(files, key=lambda path: path.name.casefold())

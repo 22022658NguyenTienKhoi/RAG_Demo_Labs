@@ -1,0 +1,14 @@
+[
+  {
+    "question": "Thông tư nào quy định về hoạt động cho vay của tổ chức tín dụng đối với khách hàng?",
+    "relevant_sources": ["TT_39_2016_NHNN.md"]
+  },
+  {
+    "question": "Quy định nào hỗ trợ khách hàng gặp khó khăn bằng cơ cấu lại thời hạn trả nợ và giữ nguyên nhóm nợ?",
+    "relevant_sources": ["TT_02_2023_NHNN.md"]
+  },
+  {
+    "question": "Chính sách nội bộ yêu cầu kiểm tra việc sử dụng vốn vay như thế nào?",
+    "relevant_sources": ["chinh_sach_tin_dung.md"]
+  }
+]

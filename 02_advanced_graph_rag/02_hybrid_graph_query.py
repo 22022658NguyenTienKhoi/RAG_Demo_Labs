@@ -38,11 +38,13 @@ def graph_facts(hits):
     except Exception as error: return f"Không thể dùng đồ thị Neo4j: {error}"
 
 parser=argparse.ArgumentParser(description='Hybrid RRF + Graph RAG Neo4j dùng chỉ mục của Bài 01')
-parser.add_argument('--ask',required=True); args=parser.parse_args()
+parser.add_argument('--ask',required=True)
+parser.add_argument('--backend',choices=['chroma','pinecone','json'],default=None)
+args=parser.parse_args()
 if '?' in args.ask[:-1]:
     raise ValueError("Câu hỏi có '?' thay cho ký tự tiếng Việt. Hãy dùng PowerShell UTF-8 hoặc tiếng Việt không dấu, ví dụ: 'Thong tu nao quy dinh ve hoat dong cho vay cua to chuc tin dung?'.")
 records=load_index('foundation')
-dense=[(item['score'],item) for item in retrieve(args.ask,records,top_k=len(records))]
+dense=[(item['score'],item) for item in retrieve(args.ask,records,top_k=len(records),backend=args.backend)]
 hits=rrf(dense,bm25(args.ask,records))[:5]
 facts=graph_facts(hits)
 for h in hits:

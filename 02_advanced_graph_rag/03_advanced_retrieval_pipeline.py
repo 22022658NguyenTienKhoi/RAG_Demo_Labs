@@ -50,20 +50,37 @@ def rrf(rankings: list[list[tuple[float, dict]]], k: int = 60) -> list[dict]:
 
 
 def rerank(question: str, candidates: list[dict]) -> list[dict]:
-    """Use a cross-encoder when installed; lexical fallback keeps the lab runnable."""
-    try:
-        from sentence_transformers import CrossEncoder
-        scores = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2").predict([(question, item["text"]) for item in candidates])
-        return sorted([{**item, "rerank_score": float(score)} for item, score in zip(candidates, scores)], key=lambda item: item["rerank_score"], reverse=True)
-    except ImportError:
-        query = set(terms(question))
-        return sorted([{**item, "rerank_score": len(query & set(terms(item["text"]))) / max(len(query), 1)} for item in candidates], key=lambda item: item["rerank_score"], reverse=True)
+    """Lightweight deterministic reranking without an additional ML model."""
+    query = set(terms(question))
+    ranked = []
+    for item in candidates:
+        document_terms = terms(item["text"])
+        overlap = len(query & set(document_terms)) / max(len(query), 1)
+        phrase_bonus = 0.2 if question.lower() in item["text"].lower() else 0.0
+        ranked.append({**item, "rerank_score": overlap + phrase_bonus})
+    return sorted(ranked, key=lambda item: item["rerank_score"], reverse=True)
 
 
-def expand_parents(hits: list[dict], records: list[dict]) -> list[dict]:
-    parents = {hit.get("parent_id") for hit in hits}
-    siblings = [record for record in records if record.get("parent_id") in parents]
-    return list({(item["source"], item["chunk_id"]): item for item in [*hits, *siblings]}.values())
+def expand_parents(hits: list[dict], records: list[dict], max_context: int = 12) -> list[dict]:
+    """Add only adjacent parent siblings and cap context to control noise/tokens."""
+    selected = {(item["source"], item["chunk_id"]): item for item in hits[:max_context]}
+    by_parent: defaultdict[str, list[dict]] = defaultdict(list)
+    for record in records:
+        if record.get("parent_id"):
+            by_parent[record["parent_id"]].append(record)
+    for siblings in by_parent.values():
+        siblings.sort(key=lambda item: item["chunk_id"])
+    for hit in hits:
+        siblings = by_parent.get(hit.get("parent_id"), [])
+        positions = {item["chunk_id"]: position for position, item in enumerate(siblings)}
+        position = positions.get(hit["chunk_id"])
+        if position is None:
+            continue
+        for neighbor in siblings[max(0, position - 1):position + 2]:
+            selected.setdefault((neighbor["source"], neighbor["chunk_id"]), neighbor)
+            if len(selected) >= max_context:
+                return list(selected.values())
+    return list(selected.values())
 
 
 def expand_graph(hits: list[dict], records: list[dict]) -> list[dict]:
@@ -98,15 +115,28 @@ def expand_graph(hits: list[dict], records: list[dict]) -> list[dict]:
     return list({(item["source"], item["chunk_id"]): item for item in [*hits, *connected]}.values())
 
 
+def hybrid_retrieve(question: str, records: list[dict], top_k: int = 5, backend: str | None = None,
+                    allowed_sources: list[str] | None = None) -> list[dict]:
+    """Combine vector-database semantic search and local BM25 with RRF."""
+    searchable = records
+    if allowed_sources is not None:
+        allowed = set(allowed_sources)
+        searchable = [record for record in records if record["source"] in allowed]
+    rankings = []
+    for query in query_variants(question):
+        dense_hits = retrieve(query, searchable, top_k=max(len(searchable), top_k), backend=backend,
+                              allowed_sources=allowed_sources)
+        rankings.append([(hit["score"], hit) for hit in dense_hits])
+        rankings.append(bm25(query, searchable))
+    return rerank(question, rrf(rankings)[:20])[:top_k]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ask", required=True); parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--backend", choices=["chroma", "pinecone", "json"], default=None)
     args = parser.parse_args(); records = load_index("foundation")
-    rankings = []
-    for query in query_variants(args.ask):
-        rankings.append([(hit["score"], hit) for hit in retrieve(query, records, top_k=len(records))])
-        rankings.append(bm25(query, records))
-    hits = rerank(args.ask, rrf(rankings)[:20])
+    hits = hybrid_retrieve(args.ask, records, top_k=args.top_k, backend=args.backend)
     context = expand_parents(expand_graph(hits[:args.top_k], records), records)
     for item in hits[:args.top_k]: print(f"{item['rerank_score']:.3f} | {item['source']} | {item.get('parent_title', 'N/A')} | chunk {item['chunk_id']}")
     print(infer(args.ask, context, "Use only the retrieved hybrid, graph-connected and parent-child context; cite every claim."))

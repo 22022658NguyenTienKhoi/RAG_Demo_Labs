@@ -20,10 +20,21 @@ if not isinstance(rows, list) or not rows or any(not required <= row.keys() or n
 report = {"samples": len(rows), "metrics": ["context_precision", "context_recall", "faithfulness", "answer_relevancy"], "status": "validated"}
 if args.run:
     try:
+        import os
         from datasets import Dataset
+        from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
         from ragas import evaluate
+        from ragas.embeddings import LangchainEmbeddingsWrapper
+        from ragas.llms import LangchainLLMWrapper
         from ragas.metrics import context_precision, context_recall, faithfulness, answer_relevancy
-        result = evaluate(Dataset.from_list(rows), metrics=[context_precision, context_recall, faithfulness, answer_relevancy])
+        from dotenv import load_dotenv
+        load_dotenv(ROOT / ".env")
+        if not os.getenv("GEMINI_API_KEY"):
+            raise RuntimeError("GEMINI_API_KEY is required for the RAGAS judges")
+        api_key = os.environ["GEMINI_API_KEY"]
+        judge = LangchainLLMWrapper(ChatGoogleGenerativeAI(model=os.getenv("RAGAS_GEMINI_MODEL", "gemini-2.5-flash"), temperature=0, google_api_key=api_key))
+        judge_embeddings = LangchainEmbeddingsWrapper(GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=api_key))
+        result = evaluate(Dataset.from_list(rows), metrics=[context_precision, context_recall, faithfulness, answer_relevancy], llm=judge, embeddings=judge_embeddings)
         report["scores"] = {key: float(value) for key, value in result.to_pandas().mean(numeric_only=True).to_dict().items()}
         report["status"] = "completed"
     except Exception as error:
@@ -31,7 +42,7 @@ if args.run:
         report["error"] = str(error)
         STORE_DIR.mkdir(exist_ok=True)
         (STORE_DIR / "ragas_evaluation_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-        raise RuntimeError("RAGAS could not run. Configure a supported LLM and embedding judge, then retry.") from error
+        raise RuntimeError("RAGAS could not run with the configured Gemini judges; see the report error and retry.") from error
 
 STORE_DIR.mkdir(exist_ok=True)
 (STORE_DIR / "ragas_evaluation_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

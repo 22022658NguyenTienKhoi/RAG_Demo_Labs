@@ -4,16 +4,24 @@ services:
     environment:
       IS_PERSISTENT: "TRUE"
       ANONYMIZED_TELEMETRY: "FALSE"
-    ports: ["8000:8000"]
+    ports: ["8001:8000"]
     volumes: [chroma_data:/chroma/chroma]
+
   neo4j:
     image: neo4j:5
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
     ports: ["7474:7474", "7687:7687"]
     volumes: [neo4j_data:/data]
+
   redis:
     image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -21,18 +29,43 @@ services:
       POSTGRES_USER: rag
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
     volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag -d rag"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   api:
     build: .
-    command: uvicorn 03_metadata_enterprise_chatbot.api:app --host 0.0.0.0 --port 8000
+    command: python start_api.py
     env_file: .env
+    environment:
+      RAG_VECTOR_BACKEND: chroma
+      CHROMA_URL: http://chromadb:8000
+      DATABASE_URL: postgresql://rag:${POSTGRES_PASSWORD:-change-me}@postgres:5432/rag
+      REDIS_URL: redis://redis:6379/0
+      NEO4J_URI: bolt://neo4j:7687
+    depends_on:
+      chromadb:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     ports: ["8000:8000"]
     volumes: [.:/app]
+
   web:
     build: .
     command: streamlit run 03_metadata_enterprise_chatbot/app.py --server.address 0.0.0.0
-    environment: [RAG_API_URL=http://api:8000]
+    environment:
+      RAG_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_started
     ports: ["8501:8501"]
     volumes: [.:/app]
+
 volumes:
   chroma_data:
   neo4j_data:

@@ -3,3 +3,6 @@
 /agent_requirements
 /IMPLEMENTATION_REQUIREMENTS.md
 /__pycache__
+__pycache__/
+*.py[cod]
+.venv/

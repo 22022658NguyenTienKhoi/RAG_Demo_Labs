@@ -1,0 +1,28 @@
+{
+  "strategies": [
+    {
+      "strategy": "fixed",
+      "chunks": 145,
+      "average_characters": 1231.5,
+      "median_characters": 1299,
+      "max_characters": 1400,
+      "preserves_parent_metadata": true
+    },
+    {
+      "strategy": "semantic",
+      "chunks": 145,
+      "average_characters": 1230.8,
+      "median_characters": 1299,
+      "max_characters": 1400,
+      "preserves_parent_metadata": true
+    },
+    {
+      "strategy": "hierarchical",
+      "chunks": 134,
+      "average_characters": 1315.6,
+      "median_characters": 1400.0,
+      "max_characters": 1400,
+      "preserves_parent_metadata": true
+    }
+  ]
+}
